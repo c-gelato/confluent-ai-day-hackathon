@@ -288,3 +288,43 @@ resource "confluent_flink_statement" "brand_response_actions_table" {
     confluent_flink_statement.brand_incident_alerts_table,
   ]
 }
+
+resource "confluent_connector" "brand_response_http_sink" {
+  count = var.response_webhook_url != "" ? 1 : 0
+
+  environment {
+    id = data.terraform_remote_state.core.outputs.confluent_environment_id
+  }
+  kafka_cluster {
+    id = data.terraform_remote_state.core.outputs.confluent_kafka_cluster_id
+  }
+
+  config_sensitive = {
+    "kafka.api.key"    = data.terraform_remote_state.core.outputs.app_manager_kafka_api_key
+    "kafka.api.secret" = data.terraform_remote_state.core.outputs.app_manager_kafka_api_secret
+    "schema.registry.basic.auth.user.info" = "${data.terraform_remote_state.core.outputs.app_manager_schema_registry_api_key}:${data.terraform_remote_state.core.outputs.app_manager_schema_registry_api_secret}"
+  }
+
+  config_nonsensitive = {
+    "connector.class"               = "HttpSink"
+    "name"                          = "brand-response-actions-http-sink"
+    "kafka.auth.mode"               = "KAFKA_API_KEY"
+    "topics"                        = "brand_response_actions"
+    "input.data.format"             = "AVRO"
+    "http.api.url"                  = var.response_webhook_url
+    "request.method"                = "POST"
+    "headers"                       = "Content-Type: application/json"
+    "tasks.max"                     = "1"
+    "batch.max.size"                = "1"
+    "schema.registry.url"           = data.terraform_remote_state.core.outputs.confluent_schema_registry_rest_endpoint
+    "basic.auth.credentials.source" = "USER_INFO"
+  }
+
+  depends_on = [
+    confluent_flink_statement.brand_response_actions_table,
+  ]
+
+  lifecycle {
+    prevent_destroy = false
+  }
+}

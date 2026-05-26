@@ -342,65 +342,140 @@ SELECT
     release_id,
     release_type,
     release_version,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Incident Type:\\s*([\\s\\S]*?)\\s*(?=Recommended Owner:|$)', 1)) AS incident_type,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Recommended Owner:\\s*([\\s\\S]*?)\\s*(?=Customer Impact:|$)', 1)) AS recommended_owner,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Customer Impact:\\s*([\\s\\S]*?)\\s*(?=Draft Response:|$)', 1)) AS customer_impact,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Draft Response:\\s*([\\s\\S]*?)\\s*(?=Escalation Rationale:|$)', 1)) AS draft_response,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Escalation Rationale:\\s*([\\s\\S]*)$', 1)) AS escalation_rationale,
-    CAST(response AS STRING) AS raw_response
-FROM brand_incident_alerts,
-LATERAL TABLE(AI_RUN_AGENT(
-    `brand_incident_commander`,
-    CONCAT(
-        'INCIDENT SUMMARY: ', incident_summary, '\n',
-        'Brand: ', brand, '\n',
-        'Product: ', product, '\n',
-        'Region: ', region, '\n',
-        'Severity: ', severity, '\n',
-        'Incident Score: ', CAST(incident_score AS STRING), '\n',
-        'Support Cases: ', CAST(support_case_count AS STRING), '\n',
-        'Urgent Support Cases: ', CAST(urgent_support_cases AS STRING), '\n',
-        'Release ID: ', COALESCE(release_id, 'none'), '\n',
-        'Release Type: ', COALESCE(release_type, 'none'), '\n',
-        'Release Version: ', COALESCE(release_version, 'none')
-    ),
-    CONCAT(brand, '-', product, '-', region, '-', CAST(window_time AS STRING))
-));
+    TRIM(SUBSTRING(raw_response FROM POSITION('Incident Type:' IN raw_response) + CHAR_LENGTH('Incident Type:') FOR POSITION('Recommended Owner:' IN raw_response) - POSITION('Incident Type:' IN raw_response) - CHAR_LENGTH('Incident Type:'))) AS incident_type,
+    TRIM(SUBSTRING(raw_response FROM POSITION('Recommended Owner:' IN raw_response) + CHAR_LENGTH('Recommended Owner:') FOR POSITION('Customer Impact:' IN raw_response) - POSITION('Recommended Owner:' IN raw_response) - CHAR_LENGTH('Recommended Owner:'))) AS recommended_owner,
+    TRIM(SUBSTRING(raw_response FROM POSITION('Customer Impact:' IN raw_response) + CHAR_LENGTH('Customer Impact:') FOR POSITION('Draft Response:' IN raw_response) - POSITION('Customer Impact:' IN raw_response) - CHAR_LENGTH('Customer Impact:'))) AS customer_impact,
+    TRIM(SUBSTRING(raw_response FROM POSITION('Draft Response:' IN raw_response) + CHAR_LENGTH('Draft Response:') FOR POSITION('Escalation Rationale:' IN raw_response) - POSITION('Draft Response:' IN raw_response) - CHAR_LENGTH('Draft Response:'))) AS draft_response,
+    TRIM(SUBSTRING(raw_response FROM POSITION('Escalation Rationale:' IN raw_response) + CHAR_LENGTH('Escalation Rationale:'))) AS escalation_rationale,
+    raw_response
+FROM (
+    SELECT
+        brand,
+        product,
+        region,
+        window_time,
+        severity,
+        incident_score,
+        support_case_count,
+        urgent_support_cases,
+        release_id,
+        release_type,
+        release_version,
+        CAST(response AS STRING) AS raw_response
+    FROM brand_incident_alerts,
+    LATERAL TABLE(AI_RUN_AGENT(
+        `brand_incident_commander`,
+        CONCAT(
+            'INCIDENT SUMMARY: ', incident_summary, '\n',
+            'Brand: ', brand, '\n',
+            'Product: ', product, '\n',
+            'Region: ', region, '\n',
+            'Severity: ', severity, '\n',
+            'Incident Score: ', CAST(incident_score AS STRING), '\n',
+            'Support Cases: ', CAST(support_case_count AS STRING), '\n',
+            'Urgent Support Cases: ', CAST(urgent_support_cases AS STRING), '\n',
+            'Release ID: ', COALESCE(release_id, 'none'), '\n',
+            'Release Type: ', COALESCE(release_type, 'none'), '\n',
+            'Release Version: ', COALESCE(release_version, 'none')
+        ),
+        CONCAT(brand, '-', product, '-', region, '-', CAST(window_time AS STRING))
+    ))
+);
 ```
 
 That action stream can be consumed by sink connectors or downstream services to open Jira tickets, send Slack alerts, create support playbooks, or trigger incident workflows.
 
-### 5. What to demo to judges
+### 5. Connect the action stream to downstream systems
+
+The `brand_response_actions` topic is consumed by an HTTP Sink connector defined in `terraform/lab5-brand-sentiment-response/`. Set `response_webhook_url` to any reachable HTTP endpoint before applying:
+
+```bash
+# Quick demo endpoint: grab a free URL from https://webhook.site
+export TF_VAR_response_webhook_url="https://webhook.site/your-unique-id"
+terraform -chdir=terraform/lab5-brand-sentiment-response apply
+```
+
+Each `brand_response_action` event fires an HTTP POST containing the full structured payload — `severity`, `recommended_owner`, `draft_response`, `escalation_rationale`, and release context — to that endpoint in real time. For a more compelling demo substitute a Slack incoming webhook or a ServiceNow integration URL.
+
+This closes the end-to-end connector story:
+
+- **Inbound**: production deployments replace the Python publisher with Datagen, Zendesk, or social media connectors feeding `brand_mentions` and `support_cases`.
+- **Outbound**: the HTTP Sink connector is the governed, Schema Registry-backed delivery path that turns AI-generated events into operational actions.
+
+### 6. Stream Governance talking point: schema evolution
+
+The `brand_response_actions` schema is registered in Schema Registry under the subject `brand_response_actions-value`. Use this during the demo to illustrate forward-compatible evolution:
+
+```bash
+# Show current registered schema version
+confluent schema-registry schema describe \
+  --subject brand_response_actions-value \
+  --version latest
+
+# Register a new forward-compatible version that adds an SLA field
+# Old consumers are unaffected; new consumers receive the new field automatically
+confluent schema-registry schema create \
+  --subject brand_response_actions-value \
+  --schema '{
+    "type": "record",
+    "name": "brand_response_actions_value",
+    "namespace": "org.apache.flink.avro.generated.record",
+    "fields": [
+      {"name": "brand",                "type": "string"},
+      {"name": "product",              "type": "string"},
+      {"name": "region",               "type": "string"},
+      {"name": "severity",             "type": ["null", "string"], "default": null},
+      {"name": "incident_type",        "type": ["null", "string"], "default": null},
+      {"name": "recommended_owner",    "type": ["null", "string"], "default": null},
+      {"name": "customer_impact",      "type": ["null", "string"], "default": null},
+      {"name": "draft_response",       "type": ["null", "string"], "default": null},
+      {"name": "escalation_rationale", "type": ["null", "string"], "default": null},
+      {"name": "response_sla_minutes", "type": ["null", "int"],    "default": null}
+    ]
+  }'
+```
+
+**Demo talking point:** "Every contract in this system — source facts, derived alerts, and AI action events — is version-controlled in Schema Registry. Adding `response_sla_minutes` here is non-breaking: existing Flink consumers and sink connectors continue working without any changes, and the new field appears automatically for any consumer that upgrades."
+
+### 7. What to demo to judges
 
 The strongest short demo sequence is:
 
-1. Show social and news negativity in `brand_mentions`
-2. Show support load rising in `support_cases`
-3. Show a nearby firmware rollout in `product_release_events`
-4. Show Flink produce `brand_incident_alerts`
-5. Show AI produce `brand_response_actions`
-6. Show the action stream routed to a downstream sink or consumer
+1. Show social and news negativity building in `brand_mentions` (firmware overheating reports)
+2. Show support load surging in `support_cases` (urgent battery-drain tickets)
+3. Show the nearby firmware rollout in `product_release_events` (PulsePhone v5.4.2, 100% NA-East)
+4. Show Flink produce `brand_incident_alerts` — severity `critical`, release correlation present, `incident_score` elevated by the +15 release bonus
+5. Show AI produce `brand_response_actions` — `recommended_owner: Product Engineering`, draft response citing the firmware trigger
+6. Show the HTTP Sink connector delivering the action event to your webhook endpoint in real time
+7. Open Schema Registry in the Confluent Cloud UI and show all five governed topic schemas with version history
+
+**Judge talking points by criterion:**
+
+| Criterion | Evidence |
+|---|---|
+| Connectors | HTTP Sink connector (outbound); in production, Zendesk/social connectors replace the datagen publisher |
+| Stream Processing | 3-stream Flink correlation with tumbling windows, interval join, severity scoring, and `AI_RUN_AGENT()` inside SQL |
+| Stream Governance | Schema Registry on all 5 topics; FORWARD-compatible schema evolution demoed live |
+| Business Impact | Minutes from firmware push to routed response draft; false-positive reduction from multi-signal correlation vs single-stream threshold |
 
 That hits all four judging dimensions cleanly.
 
 ## Why this version is more competitive
 
-- **Most impactful app:** it helps prevent PR crises and speeds incident response
-- **AI business impact:** AI is used to route and draft operational responses, not just summarize text
-- **Connectors:** the design explicitly relies on multiple inbound connectors and at least one outbound action sink
-- **Stream processing:** multi-stream windowing, joins, scoring, and routing are central to the app
-- **Stream governance:** Schema Registry covers source, derived, and action topics with evolution-safe contracts
-- **Flink AI bonus points:** the design uses Streaming Agents directly in Flink SQL for response generation
+- **Most impactful app:** detects PR crises within minutes and routes response drafts to the correct team automatically
+- **AI business impact:** AI is used inside Flink SQL (`AI_RUN_AGENT`) to classify, route, and draft operational responses — not a post-hoc wrapper
+- **Connectors:** HTTP Sink connector delivers `brand_response_actions` to any downstream system; production inbound replaces the datagen publisher with real Zendesk or social-media connectors
+- **Stream processing:** 3-stream tumbling-window correlation with interval join, severity scoring, and release-context attribution — all inside a single Flink SQL statement
+- **Stream governance:** Schema Registry covers all 5 topics; live schema evolution demo shows FORWARD-compatible contract extension
+- **Flink AI bonus points:** Streaming Agents invoked directly in Flink SQL via `AI_RUN_AGENT()` — the response generation runs inside the stream processor, not outside it
 
-## Recommended next implementation step
+## Recommended next steps
 
-The repo now includes local sample publishers for all three inbound streams. The best next move for a stronger hackathon submission is to add:
+The project is demo-ready end to end. Optional improvements for an even stronger submission:
 
-1. an outbound sink or webhook consumer for `brand_response_actions`
-2. an optional `ML_DETECT_ANOMALIES` or similar Flink-native scoring layer on top of `incident_score`
-3. one or more real connectors in place of the simulated source publisher
-
-That would shift Lab 5 from a strong prototype into a more compelling end-to-end competition demo.
+1. Replace the Python datagen publisher with a Datagen Source Connector or a real social/news connector to show inbound connector depth
+2. Add an `ML_DETECT_ANOMALIES` or `ML_PREDICT` call inside the Flink SQL scoring step for a Track 2 Flink AI bonus
+3. Substitute the webhook URL with a live Slack incoming webhook for a more visually compelling demo endpoint
 
 ## Clean-up
 
