@@ -342,11 +342,11 @@ SELECT
     release_id,
     release_type,
     release_version,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Incident Type:\\*{0,2}\\s*([^\\n]+)', 1)) AS incident_type,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Recommended Owner:\\*{0,2}\\s*([^\\n]+)', 1)) AS recommended_owner,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Customer Impact:\\*{0,2}\\s*\\n([\\s\\S]+?)(?=\\n\\*{0,2}Draft Response:)', 1)) AS customer_impact,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Draft Response:\\*{0,2}\\s*\\n([\\s\\S]+?)(?=\\n\\*{0,2}Escalation Rationale:)', 1)) AS draft_response,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Escalation Rationale:\\*{0,2}\\s*\\n([\\s\\S]+)$', 1)) AS escalation_rationale,
+    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Incident Type:\\s*([\\s\\S]*?)\\s*(?=Recommended Owner:|$)', 1)) AS incident_type,
+    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Recommended Owner:\\s*([\\s\\S]*?)\\s*(?=Customer Impact:|$)', 1)) AS recommended_owner,
+    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Customer Impact:\\s*([\\s\\S]*?)\\s*(?=Draft Response:|$)', 1)) AS customer_impact,
+    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Draft Response:\\s*([\\s\\S]*?)\\s*(?=Escalation Rationale:|$)', 1)) AS draft_response,
+    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), 'Escalation Rationale:\\s*([\\s\\S]*)$', 1)) AS escalation_rationale,
     CAST(response AS STRING) AS raw_response
 FROM brand_incident_alerts,
 LATERAL TABLE(AI_RUN_AGENT(
