@@ -46,7 +46,9 @@ def get_manual_commands_for_lab(lab_name: str) -> str:
     markdown_files = {
         "lab1": "LAB1-Walkthrough.md",
         "lab2": "LAB2-Walkthrough.md",
-        "lab3": "Lab3-Walkthrough.md",
+        "lab3": "LAB3-Walkthrough.md",
+        "lab4": "LAB4-Walkthrough.md",
+        "lab5": "LAB5-Walkthrough.md",
     }
 
     if lab_name not in markdown_files:
@@ -118,13 +120,14 @@ def generate_summary_for_lab(
 
     # Generate the summary
     output_file = terraform_dir / "FLINK_SQL_COMMANDS.md"
-    lab_full_name = (
-        f"{lab_name}-tool-calling"
-        if lab_name == "lab1"
-        else f"{lab_name}-vector-search"
-        if lab_name == "lab2"
-        else f"{lab_name}-anomaly-detection"
-    )
+    lab_full_names = {
+        "lab1": "lab1-tool-calling",
+        "lab2": "lab2-vector-search",
+        "lab3": "lab3-agentic-fleet-management",
+        "lab4": "lab4-pubsec-fraud-agents",
+        "lab5": "lab5-brand-sentiment-response",
+    }
+    lab_full_name = lab_full_names[lab_name]
 
     generate_flink_sql_summary(
         lab_name=lab_full_name,
@@ -179,6 +182,8 @@ def main():
         "lab1": "lab1-tool-calling",
         "lab2": "lab2-vector-search",
         "lab3": "lab3-agentic-fleet-management",
+        "lab4": "lab4-pubsec-fraud-agents",
+        "lab5": "lab5-brand-sentiment-response",
     }
 
     # Get project root (two levels up from scripts/common)

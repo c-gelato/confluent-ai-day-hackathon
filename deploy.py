@@ -222,6 +222,7 @@ def main():
             "lab2-vector-search",
             "lab3-agentic-fleet-management",
             "lab4-pubsec-fraud-agents",
+            "lab5-brand-sentiment-response",
         ]
 
         print(f"✓ Credentials loaded from credentials.env")
@@ -248,6 +249,7 @@ def main():
             "lab2-vector-search",
             "lab3-agentic-fleet-management",
             "lab4-pubsec-fraud-agents",
+            "lab5-brand-sentiment-response",
         ]
 
         # Build environment variables for Terraform
@@ -393,7 +395,8 @@ def main():
             "Lab 2: Vector Search / RAG",
             "Lab 3: Agentic Fleet Management",
             "Lab 4: FEMA Fraud Detection",
-            "All Labs (Labs 1, 2, 3, and 4)",
+            "Lab 5: Brand Sentiment + Response Engine",
+            "All Labs (Labs 1, 2, 3, 4, and 5)",
         ]
         env_choice = prompt_choice("What would you like to deploy?", deploy_options)
 
@@ -406,13 +409,16 @@ def main():
             envs_to_deploy = ["core", "lab3-agentic-fleet-management"]
         elif env_choice == "Lab 4: FEMA Fraud Detection":
             envs_to_deploy = ["core", "lab4-pubsec-fraud-agents"]
-        elif env_choice == "All Labs (Labs 1, 2, 3, and 4)":
+        elif env_choice == "Lab 5: Brand Sentiment + Response Engine":
+            envs_to_deploy = ["core", "lab5-brand-sentiment-response"]
+        elif env_choice == "All Labs (Labs 1, 2, 3, 4, and 5)":
             envs_to_deploy = [
                 "core",
                 "lab1-tool-calling",
                 "lab2-vector-search",
                 "lab3-agentic-fleet-management",
                 "lab4-pubsec-fraud-agents",
+                "lab5-brand-sentiment-response",
             ]
 
         # Step 4.5: Remote MCP backend selection (Lab 1 / Lab 3 only)

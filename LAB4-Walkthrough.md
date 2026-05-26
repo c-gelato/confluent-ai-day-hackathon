@@ -519,4 +519,5 @@ Choose your cloud provider when prompted to remove all lab-related resources.
 
 - **← Back to Overview**: [Main README](./README.md)
 - **← Previous Lab**: [Lab3: Agentic Fleet Management](./LAB3-Walkthrough.md)
+- **→ Next Lab**: [Lab5: Real-Time Brand Sentiment and Response Engine](./LAB5-Walkthrough.md)
 - **🧹 Cleanup**: [Cleanup Instructions](./README.md#cleanup)

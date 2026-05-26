@@ -133,6 +133,7 @@ def main():
         creds = load_credentials_json(root)
         cloud = creds["cloud"]
         envs_to_destroy = [
+            "lab5-brand-sentiment-response",
             "lab4-pubsec-fraud-agents",
             "lab3-agentic-fleet-management",
             "lab2-vector-search",
@@ -199,6 +200,7 @@ def main():
 
         # Step 2: Always destroy all environments
         envs_to_destroy = [
+            "lab5-brand-sentiment-response",
             "lab4-pubsec-fraud-agents",
             "lab3-agentic-fleet-management",
             "lab2-vector-search",

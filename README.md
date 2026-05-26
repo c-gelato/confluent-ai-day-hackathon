@@ -8,7 +8,7 @@
   </a>
 </div>
 
-Build real-time AI agents with [Confluent Cloud Streaming Agents](https://docs.confluent.io/cloud/current/ai/streaming-agents/overview.html). This quickstart includes three hands-on labs:
+Build real-time AI agents with [Confluent Cloud Streaming Agents](https://docs.confluent.io/cloud/current/ai/streaming-agents/overview.html). This quickstart includes five hands-on labs:
 
 <table>
 <tr>
@@ -30,6 +30,10 @@ Build real-time AI agents with [Confluent Cloud Streaming Agents](https://docs.c
 <tr>
 <td><a href="./LAB4-Walkthrough.md"><strong>Lab4 - Public Sector Insurance Claims Fraud Detection Using Confluent Intelligence</strong></a></td>
 <td>Real-time fraud detection system that autonomously identifies suspicious claim patterns in disaster insurance claims applications using anomaly detection, pattern recognition, and LLM-powered analysis.<br><br><img src="./assets/lab4/lab4-architecture.png" alt="Lab4 architecture diagram"></td>
+</tr>
+<tr>
+<td><a href="./LAB5-Walkthrough.md"><strong>Lab5 - Real-Time Brand Sentiment and Response Engine</strong></a></td>
+<td>Schema Registry-governed social and news sentiment monitoring demo that aggregates brand health windows in Flink and auto-drafts escalation responses with Streaming Agents.</td>
 </tr>
 </table>
 
@@ -100,6 +104,7 @@ quickstart-streaming-agents/
 │   ├── lab2-vector-search/             # Lab2-specific infra
 │   └── lab3-agentic-fleet-management/  # Lab3-specific infra
 │   └── lab4-pubsec-fraud-agents        # Lab4-specific infra
+│   └── lab5-brand-sentiment-response   # Lab5-specific infra
 ├── deploy.py                           # Start here with uv run deploy
 └── scripts/                            # Python utilities invoked with uv
 ```
