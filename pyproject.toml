@@ -101,6 +101,9 @@ publish-lab3-data = "scripts.publish_lab3_data:main"
 publish_lab5_data = "scripts.publish_lab5_data:main"
 publish-lab5-data = "scripts.publish_lab5_data:main"
 #
+verify_lab5_outputs = "scripts.verify_lab5_outputs:main"
+verify-lab5-outputs = "scripts.verify_lab5_outputs:main"
+#
 capture_lab3_data = "scripts.capture_lab3_data:main"
 capture-lab3-data = "scripts.capture_lab3_data:main"
 #

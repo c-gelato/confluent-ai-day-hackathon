@@ -101,6 +101,8 @@ KEY_FIELDS = {
     "product_release_events": "release_id",
 }
 
+WATERMARK_ADVANCE_MS = 6 * 60 * 1000
+
 
 def parse_event_ts(value: str) -> int:
     return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
@@ -194,6 +196,54 @@ def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _append_watermark_records(topic_records: Dict[str, List[Dict[str, Any]]], watermark_ts: int) -> None:
+    topic_records["brand_mentions"].append(
+        {
+            "mention_id": "wm-brand-mentions",
+            "brand": "WatermarkCo",
+            "product": "Verifier",
+            "region": "internal",
+            "source_type": "system",
+            "channel": "heartbeat",
+            "author_handle": None,
+            "headline": None,
+            "body": "Watermark advancement event for Lab 5 demo windows.",
+            "url": None,
+            "priority_hint": "system",
+            "sentiment_score": 0.0,
+            "event_ts": watermark_ts,
+        }
+    )
+    topic_records["support_cases"].append(
+        {
+            "case_id": "wm-support-cases",
+            "brand": "WatermarkCo",
+            "product": "Verifier",
+            "region": "internal",
+            "customer_tier": "internal",
+            "case_channel": "system",
+            "priority": "low",
+            "issue_category": "watermark",
+            "issue_summary": "Watermark advancement event for Lab 5 demo windows.",
+            "event_ts": watermark_ts,
+        }
+    )
+    topic_records["product_release_events"].append(
+        {
+            "release_id": "wm-product-release-events",
+            "brand": "WatermarkCo",
+            "product": "Verifier",
+            "region": "internal",
+            "release_type": "watermark-advance",
+            "release_version": "1.0.0",
+            "rollout_percent": 0,
+            "initiated_by": "system",
+            "change_summary": "Watermark advancement event for Lab 5 demo windows.",
+            "event_ts": watermark_ts,
+        }
+    )
+
+
 def load_records_by_topic(data_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
     topic_records = {
         topic: _load_jsonl(data_dir / file_name)
@@ -206,6 +256,7 @@ def load_records_by_topic(data_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
     )
     aligned_now = int(time.time() * 1000)
     offset_ms = aligned_now - max_ts + 15_000
+    watermark_ts = max_ts + offset_ms + WATERMARK_ADVANCE_MS
 
     rebased: Dict[str, List[Dict[str, Any]]] = {}
     for topic, records in topic_records.items():
@@ -219,6 +270,8 @@ def load_records_by_topic(data_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
                 adjusted["rollout_percent"] = int(adjusted["rollout_percent"])
             rebased_records.append(adjusted)
         rebased[topic] = rebased_records
+
+    _append_watermark_records(rebased, watermark_ts)
     return rebased
 
 

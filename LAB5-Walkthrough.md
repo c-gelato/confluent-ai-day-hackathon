@@ -110,6 +110,7 @@ Use the local multi-stream publisher already included in the repo:
 
 ```bash
 uv run lab5_datagen
+uv run verify_lab5_outputs
 ```
 
 This publishes all three governed source streams:
@@ -117,6 +118,11 @@ This publishes all three governed source streams:
 - `product_release_events`
 - `support_cases`
 - `brand_mentions`
+
+The verification command then consumes sample records from the governed derived and AI action topics:
+
+- `brand_incident_alerts`
+- `brand_response_actions`
 
 That makes the repo-friendly mode a real multi-stream Flink demo rather than a single-topic simulation.
 
