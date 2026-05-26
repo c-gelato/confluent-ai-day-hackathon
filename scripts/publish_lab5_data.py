@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish local Lab5 brand sentiment data with Schema Registry-backed Avro schemas."""
+"""Publish local Lab5 multi-stream brand incident demo data with Schema Registry-backed Avro schemas."""
 
 import argparse
 import json
@@ -26,29 +26,80 @@ from .common.logging_utils import setup_logging
 from .common.terraform import extract_kafka_credentials, get_project_root, validate_terraform_state
 
 
-TOPIC_NAME = "brand_mentions"
-VALUE_SCHEMA_STR = json.dumps(
-    {
-        "type": "record",
-        "name": "brand_mentions_value",
-        "namespace": "org.apache.flink.avro.generated.record",
-        "fields": [
-            {"name": "mention_id", "type": "string"},
-            {"name": "brand", "type": "string"},
-            {"name": "product", "type": "string"},
-            {"name": "region", "type": "string"},
-            {"name": "source_type", "type": "string"},
-            {"name": "channel", "type": "string"},
-            {"name": "author_handle", "type": ["null", "string"], "default": None},
-            {"name": "headline", "type": ["null", "string"], "default": None},
-            {"name": "body", "type": "string"},
-            {"name": "url", "type": ["null", "string"], "default": None},
-            {"name": "priority_hint", "type": ["null", "string"], "default": None},
-            {"name": "sentiment_score", "type": "double"},
-            {"name": "event_ts", "type": {"type": "long", "logicalType": "timestamp-millis"}},
-        ],
-    }
-)
+TOPIC_SCHEMAS = {
+    "brand_mentions": json.dumps(
+        {
+            "type": "record",
+            "name": "brand_mentions_value",
+            "namespace": "org.apache.flink.avro.generated.record",
+            "fields": [
+                {"name": "mention_id", "type": "string"},
+                {"name": "brand", "type": "string"},
+                {"name": "product", "type": "string"},
+                {"name": "region", "type": "string"},
+                {"name": "source_type", "type": "string"},
+                {"name": "channel", "type": "string"},
+                {"name": "author_handle", "type": ["null", "string"], "default": None},
+                {"name": "headline", "type": ["null", "string"], "default": None},
+                {"name": "body", "type": "string"},
+                {"name": "url", "type": ["null", "string"], "default": None},
+                {"name": "priority_hint", "type": ["null", "string"], "default": None},
+                {"name": "sentiment_score", "type": "double"},
+                {"name": "event_ts", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+            ],
+        }
+    ),
+    "support_cases": json.dumps(
+        {
+            "type": "record",
+            "name": "support_cases_value",
+            "namespace": "org.apache.flink.avro.generated.record",
+            "fields": [
+                {"name": "case_id", "type": "string"},
+                {"name": "brand", "type": "string"},
+                {"name": "product", "type": "string"},
+                {"name": "region", "type": "string"},
+                {"name": "customer_tier", "type": ["null", "string"], "default": None},
+                {"name": "case_channel", "type": ["null", "string"], "default": None},
+                {"name": "priority", "type": ["null", "string"], "default": None},
+                {"name": "issue_category", "type": ["null", "string"], "default": None},
+                {"name": "issue_summary", "type": ["null", "string"], "default": None},
+                {"name": "event_ts", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+            ],
+        }
+    ),
+    "product_release_events": json.dumps(
+        {
+            "type": "record",
+            "name": "product_release_events_value",
+            "namespace": "org.apache.flink.avro.generated.record",
+            "fields": [
+                {"name": "release_id", "type": "string"},
+                {"name": "brand", "type": "string"},
+                {"name": "product", "type": "string"},
+                {"name": "region", "type": "string"},
+                {"name": "release_type", "type": "string"},
+                {"name": "release_version", "type": ["null", "string"], "default": None},
+                {"name": "rollout_percent", "type": ["null", "int"], "default": None},
+                {"name": "initiated_by", "type": ["null", "string"], "default": None},
+                {"name": "change_summary", "type": ["null", "string"], "default": None},
+                {"name": "event_ts", "type": {"type": "long", "logicalType": "timestamp-millis"}},
+            ],
+        }
+    ),
+}
+
+TOPIC_FILES = {
+    "product_release_events": "product_release_events.jsonl",
+    "support_cases": "support_cases.jsonl",
+    "brand_mentions": "brand_mentions.jsonl",
+}
+
+KEY_FIELDS = {
+    "brand_mentions": "mention_id",
+    "support_cases": "case_id",
+    "product_release_events": "release_id",
+}
 
 
 def parse_event_ts(value: str) -> int:
@@ -86,7 +137,10 @@ class Lab5DataPublisher:
             }
         )
         self.key_serializer = StringSerializer("utf_8")
-        self.value_serializer = AvroSerializer(sr_client, VALUE_SCHEMA_STR)
+        self.value_serializers = {
+            topic: AvroSerializer(sr_client, schema)
+            for topic, schema in TOPIC_SCHEMAS.items()
+        }
         self.producer = None if dry_run else Producer(self.producer_config)
 
     def purge_topic(self, topic: str) -> None:
@@ -118,13 +172,15 @@ class Lab5DataPublisher:
 
         assert self.producer is not None
         self.purge_topic(topic)
+        value_serializer = self.value_serializers[topic]
+        key_field = KEY_FIELDS[topic]
 
         published = 0
         for record in records:
             key_bytes = self.key_serializer(
-                record["mention_id"], SerializationContext(topic, MessageField.KEY)
+                record[key_field], SerializationContext(topic, MessageField.KEY)
             )
-            value_bytes = self.value_serializer(
+            value_bytes = value_serializer(
                 record, SerializationContext(topic, MessageField.VALUE)
             )
             self.producer.produce(topic=topic, key=key_bytes, value=value_bytes)
@@ -134,25 +190,42 @@ class Lab5DataPublisher:
         return published
 
 
-def load_records(data_file: Path) -> List[Dict[str, Any]]:
-    records = [json.loads(line) for line in data_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-    max_ts = max(parse_event_ts(record["event_ts"]) for record in records)
+def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def load_records_by_topic(data_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
+    topic_records = {
+        topic: _load_jsonl(data_dir / file_name)
+        for topic, file_name in TOPIC_FILES.items()
+    }
+    max_ts = max(
+        parse_event_ts(record["event_ts"])
+        for records in topic_records.values()
+        for record in records
+    )
     aligned_now = int(time.time() * 1000)
     offset_ms = aligned_now - max_ts + 15_000
 
-    rebased = []
-    for record in records:
-        adjusted = dict(record)
-        adjusted["event_ts"] = parse_event_ts(record["event_ts"]) + offset_ms
-        adjusted["sentiment_score"] = float(record["sentiment_score"])
-        rebased.append(adjusted)
+    rebased: Dict[str, List[Dict[str, Any]]] = {}
+    for topic, records in topic_records.items():
+        rebased_records = []
+        for record in records:
+            adjusted = dict(record)
+            adjusted["event_ts"] = parse_event_ts(record["event_ts"]) + offset_ms
+            if "sentiment_score" in adjusted:
+                adjusted["sentiment_score"] = float(adjusted["sentiment_score"])
+            if "rollout_percent" in adjusted and adjusted["rollout_percent"] is not None:
+                adjusted["rollout_percent"] = int(adjusted["rollout_percent"])
+            rebased_records.append(adjusted)
+        rebased[topic] = rebased_records
     return rebased
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="publish_lab5_data",
-        description="Publish Lab5 brand sentiment data to Kafka",
+        description="Publish Lab5 multi-stream brand incident data to Kafka",
     )
     parser.add_argument(
         "cloud_provider",
@@ -161,10 +234,10 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help="Target cloud provider (auto-detected if not specified)",
     )
     parser.add_argument(
-        "--data-file",
+        "--data-dir",
         type=Path,
-        default=Path("assets/lab5/data/brand_mentions.jsonl"),
-        help="Input JSONL file with brand sentiment events",
+        default=Path("assets/lab5/data"),
+        help="Input directory containing Lab5 JSONL topic files",
     )
     parser.add_argument(
         "--dry-run",
@@ -202,15 +275,19 @@ def main() -> None:
         )
         sys.exit(1)
 
-    data_file = args.data_file
-    if not data_file.is_absolute():
-        data_file = project_root / data_file
-    if not data_file.exists():
-        logger.error("Data file not found: %s", data_file)
+    data_dir = args.data_dir
+    if not data_dir.is_absolute():
+        data_dir = project_root / data_dir
+    if not data_dir.exists():
+        logger.error("Data directory not found: %s", data_dir)
+        sys.exit(1)
+    missing_files = [file_name for file_name in TOPIC_FILES.values() if not (data_dir / file_name).exists()]
+    if missing_files:
+        logger.error("Missing required Lab5 data files: %s", ", ".join(missing_files))
         sys.exit(1)
 
     credentials = extract_kafka_credentials(cloud_provider, project_root)
-    records = load_records(data_file)
+    records_by_topic = load_records_by_topic(data_dir)
 
     publisher = Lab5DataPublisher(
         bootstrap_servers=credentials["bootstrap_servers"],
@@ -221,11 +298,21 @@ def main() -> None:
         schema_registry_api_secret=credentials["schema_registry_api_secret"],
         dry_run=args.dry_run,
     )
-    published = publisher.publish_records(TOPIC_NAME, records)
 
-    latest_ts = max(record["event_ts"] for record in records)
+    publish_order = ["product_release_events", "support_cases", "brand_mentions"]
+    publish_counts = {
+        topic: publisher.publish_records(topic, records_by_topic[topic])
+        for topic in publish_order
+    }
+
+    latest_ts = max(
+        record["event_ts"]
+        for records in records_by_topic.values()
+        for record in records
+    )
     latest_iso = datetime.fromtimestamp(latest_ts / 1000, tz=timezone.utc).isoformat()
-    logger.info("Published %s records to %s", published, TOPIC_NAME)
+    for topic in publish_order:
+        logger.info("Published %s records to %s", publish_counts[topic], topic)
     logger.info("Latest event timestamp after rebasing: %s", latest_iso)
 
 

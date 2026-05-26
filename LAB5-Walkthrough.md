@@ -90,7 +90,7 @@ winget install astral-sh.uv Git.Git Hashicorp.Terraform ConfluentInc.Confluent-C
 
 > [!NOTE]
 >
-> The local sample publisher in this repo simulates the `brand_mentions` source stream. For hackathon judging, the stronger version is to show at least two real connectors plus one outbound sink connector.
+> The local sample publisher in this repo now simulates all three inbound streams: `brand_mentions`, `support_cases`, and `product_release_events`. For hackathon judging, the stronger live-demo version is to replace those simulated sources with real connectors and add one outbound sink connector for `brand_response_actions`.
 
 ## Deploy the demo
 
@@ -106,13 +106,19 @@ Choose **Lab 5: Brand Sentiment + Response Engine**.
 
 ### Mode A: Current repo-friendly demo
 
-Use the local publisher already included in the repo:
+Use the local multi-stream publisher already included in the repo:
 
 ```bash
 uv run lab5_datagen
 ```
 
-This demonstrates Schema Registry-backed ingestion for the `brand_mentions` stream.
+This publishes all three governed source streams:
+
+- `product_release_events`
+- `support_cases`
+- `brand_mentions`
+
+That makes the repo-friendly mode a real multi-stream Flink demo rather than a single-topic simulation.
 
 ### Mode B: Stronger hackathon demo
 
@@ -129,7 +135,15 @@ This is the version that best aligns to the judging criteria.
 
 ### 1. Observe the public signal
 
-Start by looking at the raw sentiment windows:
+After running `uv run lab5_datagen`, confirm that all three sources are live:
+
+```sql
+SELECT * FROM brand_mentions;
+SELECT * FROM support_cases;
+SELECT * FROM product_release_events;
+```
+
+Then start by looking at the raw sentiment windows:
 
 ```sql
 SELECT
@@ -148,7 +162,7 @@ FROM TABLE(
 GROUP BY window_start, window_end, brand, product, region;
 ```
 
-This query alone is not enough for a competitive app, but it establishes the public-facing signal.
+This query alone is not enough for a competitive app, but it establishes the public-facing signal. The real Flink value comes from the next step, where we clean, join, and score multiple event streams into a single incident view.
 
 ### 2. Correlate public sentiment with support pressure and rollout context
 
@@ -251,6 +265,13 @@ WHERE m.mention_count >= 5
 ```
 
 This is the centerpiece of the improved design. It proves real stream processing and materially improves business usefulness over a one-stream threshold query.
+
+It is also the strongest part of the “most Flink-driven app” story because it uses Flink SQL for:
+
+- event-time windowing
+- stream correlation across three topics
+- transformation of raw events into an operational incident model
+- scoring and severity derivation inside the stream processor
 
 ### 3. Create the AI incident-response agent
 
@@ -358,15 +379,17 @@ That hits all four judging dimensions cleanly.
 - **Connectors:** the design explicitly relies on multiple inbound connectors and at least one outbound action sink
 - **Stream processing:** multi-stream windowing, joins, scoring, and routing are central to the app
 - **Stream governance:** Schema Registry covers source, derived, and action topics with evolution-safe contracts
+- **Flink AI bonus points:** the design uses Streaming Agents directly in Flink SQL for response generation
 
 ## Recommended next implementation step
 
-If you want to carry this from design into code, the best next move is to add two more sample publishers or connectors for:
+The repo now includes local sample publishers for all three inbound streams. The best next move for a stronger hackathon submission is to add:
 
-- `support_cases`
-- `product_release_events`
+1. an outbound sink or webhook consumer for `brand_response_actions`
+2. an optional `ML_DETECT_ANOMALIES` or similar Flink-native scoring layer on top of `incident_score`
+3. one or more real connectors in place of the simulated source publisher
 
-That would let the repo demonstrate the stronger Flink correlation query directly instead of only documenting it.
+That would shift Lab 5 from a strong prototype into a more compelling end-to-end competition demo.
 
 ## Clean-up
 

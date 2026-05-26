@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local data generation wrapper for Lab5 brand sentiment events."""
+"""Local data generation wrapper for Lab5 multi-stream brand incident events."""
 
 import argparse
 import subprocess
@@ -10,13 +10,13 @@ from .common.logging_utils import setup_logging
 from .common.terraform import get_project_root, validate_terraform_state
 
 
-DEFAULT_DATA_FILE = "assets/lab5/data/brand_mentions.jsonl"
+DEFAULT_DATA_DIR = "assets/lab5/data"
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lab5_datagen",
-        description="Publish local Lab5 brand sentiment data to Kafka with Schema Registry",
+        description="Publish local Lab5 multi-stream incident data to Kafka with Schema Registry",
     )
     parser.add_argument(
         "cloud_provider",
@@ -56,7 +56,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    cmd = ["uv", "run", "publish_lab5_data", "--data-file", DEFAULT_DATA_FILE]
+    cmd = ["uv", "run", "publish_lab5_data", "--data-dir", DEFAULT_DATA_DIR]
     if args.dry_run:
         cmd.append("--dry-run")
     if args.verbose:
