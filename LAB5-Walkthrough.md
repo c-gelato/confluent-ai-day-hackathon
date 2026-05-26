@@ -168,8 +168,12 @@ This query alone is not enough for a competitive app, but it establishes the pub
 
 This is the core stream-processing step that makes Lab 5 competitive. Instead of triggering on sentiment alone, Flink correlates public negative sentiment, support-case velocity, and nearby release events.
 
+`brand_incident_alerts` is provisioned during `uv run deploy`, so this step writes into an already-governed output contract rather than creating an ad hoc runtime table.
+
+The alerts contract is intentionally append-style. That keeps each incident window as an event record, which is compatible with downstream AI functions that require deterministic input streams.
+
 ```sql
-CREATE TABLE brand_incident_alerts AS
+INSERT INTO brand_incident_alerts
 WITH mention_windows AS (
     SELECT
         window_start,
@@ -314,12 +318,13 @@ WITH (
 
 The final output should be an action event, not just free-form text. That is what makes the app operational and connector-friendly.
 
+`brand_response_actions` is also provisioned during `uv run deploy`, so the agent output lands in a stable, governed contract that downstream sinks can rely on.
+
+That output contract is also append-style so each generated action remains a durable event for sinks and responders instead of an upserted row.
+
 ```sql
-CREATE TABLE brand_response_actions (
-    PRIMARY KEY (brand, product, region, window_time) NOT ENFORCED
-)
-WITH ('changelog.mode' = 'append')
-AS SELECT
+INSERT INTO brand_response_actions
+SELECT
     brand,
     product,
     region,
