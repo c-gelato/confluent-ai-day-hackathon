@@ -107,7 +107,7 @@ class Lab5DataPublisher:
                 )
 
         if delete_offsets:
-            for future in admin.delete_records(delete_offsets).values():
+            for future in admin.delete_records(list(delete_offsets.values())).values():
                 future.result()
             self.logger.info("Purged existing records from %s", topic)
 
@@ -214,8 +214,8 @@ def main() -> None:
 
     publisher = Lab5DataPublisher(
         bootstrap_servers=credentials["bootstrap_servers"],
-        kafka_api_key=credentials["api_key"],
-        kafka_api_secret=credentials["api_secret"],
+        kafka_api_key=credentials["kafka_api_key"],
+        kafka_api_secret=credentials["kafka_api_secret"],
         schema_registry_url=credentials["schema_registry_url"],
         schema_registry_api_key=credentials["schema_registry_api_key"],
         schema_registry_api_secret=credentials["schema_registry_api_secret"],

@@ -1,18 +1,76 @@
-# Lab5: Real-Time Brand Sentiment and Response Engine
+# Lab5: Real-Time Brand Incident Command Center
 
-This demo showcases a real-time brand monitoring workflow that turns raw social and news mentions into governed escalation drafts. Social media posts and news coverage are ingested as Schema Registry-backed events, Apache Flink aggregates short sentiment windows by brand, product, and region, and an AI agent drafts a response whenever sentiment falls below a business threshold.
+This hackathon lab reframes brand sentiment monitoring as a real-time incident response system. Instead of watching one sentiment stream in isolation, the application correlates public social and news signals with customer support pressure and product rollout events, then uses AI to draft a routed response plan.
+
+This makes the app materially stronger for the category criteria:
+
+- **Confluent Connectors** ingest external operational systems and publish action streams outward.
+- **Stream Processing** correlates multiple live event streams, not just one aggregation.
+- **Stream Governance** uses Schema Registry-backed contracts across source, derived, and action topics.
+- **Business impact** is framed around PR crisis prevention, response SLA reduction, campaign protection, and churn-risk mitigation.
+
+## Architecture
+
+### Source streams
+
+- `brand_mentions` from social and news connectors
+- `support_cases` from CRM or support-platform connectors such as Zendesk or Salesforce
+- `product_release_events` from engineering release pipelines or deployment webhooks
+
+### Derived streams
+
+- `brand_incident_alerts` from Flink multi-stream correlation
+- `brand_response_actions` from AI-generated escalation and response decisions
+
+### Action sinks
+
+- Slack, Teams, Jira, ServiceNow, or webhook sink connectors
+
+The key design shift is that Lab 5 is no longer just a sentiment dashboard. It becomes an **AI-powered brand incident command center**.
 
 ## Business impact
 
-- PR crisis prevention through early warning on fast-moving sentiment drops
-- Marketing ROI measurement by tying campaign windows to live brand perception
-- Accessible demo surface with a compact local dataset and no external tool-calling requirement
+- Detects potential brand incidents within minutes instead of waiting for manual escalation
+- Correlates sentiment drops with support surges and rollout changes to reduce false positives
+- Produces governed machine-readable action events for PR, support, and product operations
+- Creates a measurable outcome story: faster response time, lower escalation latency, and better campaign protection
+
+## Competitive demo story
+
+In the hackathon demo, a firmware rollout triggers:
+
+1. A burst of negative public posts and news coverage
+2. A parallel spike in support cases
+3. A recent product release event that explains the timing
+4. A Flink-generated incident alert with severity, blast radius, and likely cause
+5. An AI-generated response action routed to the correct team with a response draft and escalation rationale
+
+That gives judges a much stronger end-to-end story than a single stream of sentiment averages.
+
+## Governance model
+
+Lab 5 should use Schema Registry for every event contract, not just the initial input stream.
+
+Recommended governed topics:
+
+- `brand_mentions`
+- `support_cases`
+- `product_release_events`
+- `brand_incident_alerts`
+- `brand_response_actions`
+
+Recommended governance story for the demo:
+
+- Compatibility mode enabled for producer-safe evolution
+- Additive schema evolution shown with defaults and nullable fields
+- Stable downstream contracts for PR, support, and incident-routing consumers
+- Clear separation between source facts, derived alerts, and AI action events
+
+See [Flink-schema.sql](./Flink-schema.sql) for the suggested governed Flink schemas and derived tables.
 
 ## Prerequisites
 
 ### Local dependencies
-
-**Installation instructions:**
 
 ```bash
 brew install uv git python && brew tap hashicorp/tap && brew install hashicorp/tap/terraform && brew install --cask confluent-cli
@@ -26,53 +84,52 @@ winget install astral-sh.uv Git.Git Hashicorp.Terraform ConfluentInc.Confluent-C
 
 ### API keys and access
 
+- AWS Bedrock API keys OR Azure OpenAI endpoint and API key
+- Confluent Cloud access
+- For a production-grade demo, credentials for the chosen source and sink connectors
+
 > [!NOTE]
 >
-> The credentials below are not required in instructor-led workshops — they will be provided for you.
-
-- AWS Bedrock API keys OR Azure OpenAI endpoint and API key
-  - Easy key creation: run `uv run api-keys create`
+> The local sample publisher in this repo simulates the `brand_mentions` source stream. For hackathon judging, the stronger version is to show at least two real connectors plus one outbound sink connector.
 
 ## Deploy the demo
-
-If you have not already cloned the repo:
 
 ```bash
 git clone https://github.com/confluentinc/quickstart-streaming-agents.git
 cd quickstart-streaming-agents
-```
-
-Deploy the infrastructure and choose **Lab 5: Brand Sentiment + Response Engine**:
-
-```bash
 uv run deploy
 ```
 
-This deploys the governed source table used by the lab. The event schema itself is registered when you publish the sample data in the next step.
+Choose **Lab 5: Brand Sentiment + Response Engine**.
 
-## Use case walkthrough
+## Demo modes
 
-### Data generation
+### Mode A: Current repo-friendly demo
 
-Publish the sample social and news events:
+Use the local publisher already included in the repo:
 
 ```bash
 uv run lab5_datagen
 ```
 
-The publisher writes Avro records to the `brand_mentions` topic and registers the value schema in Schema Registry. That means every downstream Flink query uses the same governed event contract.
+This demonstrates Schema Registry-backed ingestion for the `brand_mentions` stream.
 
-The source events include:
+### Mode B: Stronger hackathon demo
 
-- `brand` and `product` for the monitored portfolio
-- `region` for geographic segmentation
-- `source_type` and `channel` for connector lineage
-- `sentiment_score` as a numeric value from -1.0 to 1.0
-- `headline`, `body`, and `url` to preserve business context for the AI layer
+Use connectors for:
 
-### 1. Visualize live sentiment windows
+- social/news ingestion into `brand_mentions`
+- support-case ingestion into `support_cases`
+- release/deployment ingestion into `product_release_events`
+- sink connector or webhook subscriber for `brand_response_actions`
 
-In the [Flink UI](https://confluent.cloud/go/flink), open a SQL workspace and run the following query:
+This is the version that best aligns to the judging criteria.
+
+## Use case walkthrough
+
+### 1. Observe the public signal
+
+Start by looking at the raw sentiment windows:
 
 ```sql
 SELECT
@@ -83,22 +140,23 @@ SELECT
     region,
     COUNT(*) AS mention_count,
     ROUND(AVG(sentiment_score), 3) AS avg_sentiment,
-    SUM(CASE WHEN sentiment_score < 0 THEN 1 ELSE 0 END) AS negative_mentions
+    SUM(CASE WHEN sentiment_score < 0 THEN 1 ELSE 0 END) AS negative_mentions,
+    SUM(CASE WHEN source_type = 'news' THEN 1 ELSE 0 END) AS news_mentions
 FROM TABLE(
     TUMBLE(TABLE brand_mentions, DESCRIPTOR(event_ts), INTERVAL '5' MINUTE)
 )
 GROUP BY window_start, window_end, brand, product, region;
 ```
 
-You should see one sharply negative window for `Acme / PulsePhone / NA-East` after the firmware-update complaint burst lands.
+This query alone is not enough for a competitive app, but it establishes the public-facing signal.
 
-### 2. Create the sentiment alert stream
+### 2. Correlate public sentiment with support pressure and rollout context
 
-Now turn the aggregation into a continuous alerting table:
+This is the core stream-processing step that makes Lab 5 competitive. Instead of triggering on sentiment alone, Flink correlates public negative sentiment, support-case velocity, and nearby release events.
 
 ```sql
-CREATE TABLE brand_sentiment_alerts AS
-WITH brand_sentiment_windows AS (
+CREATE TABLE brand_incident_alerts AS
+WITH mention_windows AS (
     SELECT
         window_start,
         window_end,
@@ -115,87 +173,128 @@ WITH brand_sentiment_windows AS (
         TUMBLE(TABLE brand_mentions, DESCRIPTOR(event_ts), INTERVAL '5' MINUTE)
     )
     GROUP BY window_start, window_end, window_time, brand, product, region
+),
+support_windows AS (
+    SELECT
+        window_time,
+        brand,
+        product,
+        region,
+        COUNT(*) AS support_case_count,
+        SUM(CASE WHEN priority IN ('high', 'urgent') THEN 1 ELSE 0 END) AS urgent_support_cases
+    FROM TABLE(
+        TUMBLE(TABLE support_cases, DESCRIPTOR(event_ts), INTERVAL '5' MINUTE)
+    )
+    GROUP BY window_start, window_end, window_time, brand, product, region
+),
+release_context AS (
+    SELECT
+        brand,
+        product,
+        region,
+        release_id,
+        release_type,
+        release_version,
+        event_ts AS release_ts
+    FROM product_release_events
 )
 SELECT
-    brand,
-    product,
-    region,
-    window_time,
-    mention_count,
-    negative_mentions,
-    news_mentions,
-    social_mentions,
-    avg_sentiment,
+    m.brand,
+    m.product,
+    m.region,
+    m.window_time,
+    m.mention_count,
+    m.negative_mentions,
+    m.news_mentions,
+    m.social_mentions,
+    m.avg_sentiment,
+    COALESCE(s.support_case_count, 0) AS support_case_count,
+    COALESCE(s.urgent_support_cases, 0) AS urgent_support_cases,
+    r.release_id,
+    r.release_type,
+    r.release_version,
     CASE
-        WHEN avg_sentiment <= -0.80 THEN 'critical'
-        WHEN avg_sentiment <= -0.60 THEN 'high'
+        WHEN m.avg_sentiment <= -0.75 AND COALESCE(s.urgent_support_cases, 0) >= 3 THEN 'critical'
+        WHEN m.avg_sentiment <= -0.55 AND COALESCE(s.support_case_count, 0) >= 3 THEN 'high'
         ELSE 'elevated'
     END AS severity,
+    (
+        ABS(m.avg_sentiment) * 100
+        + (COALESCE(s.support_case_count, 0) * 5)
+        + (m.news_mentions * 8)
+        + CASE WHEN r.release_id IS NOT NULL THEN 15 ELSE 0 END
+    ) AS incident_score,
     CONCAT(
-        'Brand sentiment drop detected for ', brand, ' / ', product,
-        ' in ', region,
-        '. Average sentiment is ', CAST(avg_sentiment AS STRING),
-        ' across ', CAST(mention_count AS STRING), ' mentions, including ',
-        CAST(news_mentions AS STRING), ' news mentions and ',
-        CAST(social_mentions AS STRING), ' social posts.'
-    ) AS situation_summary
-FROM brand_sentiment_windows
-WHERE mention_count >= 5
-  AND avg_sentiment <= -0.35;
+        'Brand incident detected for ', m.brand, ' / ', m.product,
+        ' in ', m.region,
+        '. Average sentiment: ', CAST(m.avg_sentiment AS STRING),
+        ', mentions: ', CAST(m.mention_count AS STRING),
+        ', support cases: ', CAST(COALESCE(s.support_case_count, 0) AS STRING),
+        CASE
+            WHEN r.release_id IS NOT NULL THEN CONCAT(', possible trigger: ', r.release_type, ' ', r.release_version)
+            ELSE ', no recent release event matched'
+        END
+    ) AS incident_summary
+FROM mention_windows m
+LEFT JOIN support_windows s
+    ON m.brand = s.brand
+   AND m.product = s.product
+   AND m.region = s.region
+   AND m.window_time = s.window_time
+LEFT JOIN release_context r
+    ON m.brand = r.brand
+   AND m.product = r.product
+   AND m.region = r.region
+   AND r.release_ts BETWEEN m.window_time - INTERVAL '30' MINUTE AND m.window_time
+WHERE m.mention_count >= 5
+  AND m.avg_sentiment <= -0.35;
 ```
 
-Then inspect the alerts:
+This is the centerpiece of the improved design. It proves real stream processing and materially improves business usefulness over a one-stream threshold query.
+
+### 3. Create the AI incident-response agent
+
+The AI layer should no longer just draft generic PR copy. It should produce a response action for the correct team based on severity, likely cause, and blast radius.
 
 ```sql
-SELECT * FROM brand_sentiment_alerts;
-```
-
-This table is your decision boundary: only windows with enough traffic and a sufficiently negative average score move forward to the AI response stage.
-
-### 3. Define the AI response agent
-
-The next step is to draft a governed escalation response whenever a window crosses the threshold. The agent does not post externally; it produces a structured internal draft that marketing, support, or PR can approve.
-
-See [CREATE AGENT documentation](https://docs.confluent.io/cloud/current/flink/reference/statements/create-agent.html).
-
-```sql
-CREATE AGENT `brand_response_agent`
+CREATE AGENT `brand_incident_commander`
 USING MODEL `llm_textgen_model`
 USING PROMPT 'OUTPUT RULES:
-1. Respond using exactly these four labeled sections, in this order:
-Severity:
-Customer Signal:
+1. Respond using exactly these five labeled sections, in this order:
+Incident Type:
+Recommended Owner:
+Customer Impact:
 Draft Response:
 Escalation Rationale:
-2. Plain text only. No markdown, no bullets outside the labels, no extra sections.
-3. Draft Response must be 2-4 sentences, suitable for an internal PR or social response draft.
-4. Never promise a fix that is not grounded in the input. If the issue looks unresolved, say the team is investigating.
+2. Plain text only. No markdown outside the labels.
+3. Draft Response must be 2-4 sentences suitable for an internal PR, support, or incident-ops team.
+4. If the incident appears tied to a release event, explicitly say so.
+5. Recommend one owner team only: PR, Support, Product Engineering, or Marketing.
 
-You are a brand sentiment escalation assistant.
+You are a real-time brand incident commander.
 
-Your job:
-- Review the brand, product, region, severity, average sentiment, and mention volumes.
-- Infer whether this looks like a localized complaint spike or a broader product-quality issue.
-- Draft a calm, factual response for marketing or PR review.
-- Recommend why the incident should or should not be escalated immediately.
+Use the incident summary, severity, support pressure, public signal mix, and release context to decide:
+- whether the issue is a PR event, support crisis, or product-quality incident
+- which team should own first response
+- how urgent the issue is
+- what short response draft should be reviewed immediately
 
-Use this guidance:
-- critical: likely incident response, executive visibility, cross-functional escalation
-- high: urgent PR and support coordination
-- elevated: monitor closely, route to product marketing or community support
+critical means likely executive visibility and cross-functional escalation.
+high means urgent coordinated response.
+elevated means active monitoring with one accountable owner.
 
-Make the response actionable and concise. Mention the region and product by name.'
+Be concise, factual, and operational.'
 WITH (
   'max_iterations' = '6'
 );
 ```
 
-### 4. Generate response drafts with `AI_RUN_AGENT`
+### 4. Emit governed response actions
 
-Run the agent continuously over every alert:
+The final output should be an action event, not just free-form text. That is what makes the app operational and connector-friendly.
 
 ```sql
-CREATE TABLE brand_response_drafts (
+CREATE TABLE brand_response_actions (
     PRIMARY KEY (brand, product, region, window_time) NOT ENFORCED
 )
 WITH ('changelog.mode' = 'append')
@@ -205,40 +304,69 @@ AS SELECT
     region,
     window_time,
     severity,
-    avg_sentiment,
-    mention_count,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Severity:\\*{0,2}\\s*([^\\n]+)', 1)) AS model_severity,
-    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Customer Signal:\\*{0,2}\\s*\\n([\\s\\S]+?)(?=\\n\\*{0,2}Draft Response:)', 1)) AS customer_signal,
+    incident_score,
+    support_case_count,
+    urgent_support_cases,
+    release_id,
+    release_type,
+    release_version,
+    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Incident Type:\\*{0,2}\\s*([^\\n]+)', 1)) AS incident_type,
+    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Recommended Owner:\\*{0,2}\\s*([^\\n]+)', 1)) AS recommended_owner,
+    TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Customer Impact:\\*{0,2}\\s*\\n([\\s\\S]+?)(?=\\n\\*{0,2}Draft Response:)', 1)) AS customer_impact,
     TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Draft Response:\\*{0,2}\\s*\\n([\\s\\S]+?)(?=\\n\\*{0,2}Escalation Rationale:)', 1)) AS draft_response,
     TRIM(REGEXP_EXTRACT(CAST(response AS STRING), '\\*{0,2}Escalation Rationale:\\*{0,2}\\s*\\n([\\s\\S]+)$', 1)) AS escalation_rationale,
     CAST(response AS STRING) AS raw_response
-FROM brand_sentiment_alerts,
+FROM brand_incident_alerts,
 LATERAL TABLE(AI_RUN_AGENT(
-    `brand_response_agent`,
-    `situation_summary`,
-    `brand`,
-    `product`,
-    `region`,
-    `severity`
+    `brand_incident_commander`,
+    CONCAT(
+        'INCIDENT SUMMARY: ', incident_summary, '\n',
+        'Brand: ', brand, '\n',
+        'Product: ', product, '\n',
+        'Region: ', region, '\n',
+        'Severity: ', severity, '\n',
+        'Incident Score: ', CAST(incident_score AS STRING), '\n',
+        'Support Cases: ', CAST(support_case_count AS STRING), '\n',
+        'Urgent Support Cases: ', CAST(urgent_support_cases AS STRING), '\n',
+        'Release ID: ', COALESCE(release_id, 'none'), '\n',
+        'Release Type: ', COALESCE(release_type, 'none'), '\n',
+        'Release Version: ', COALESCE(release_version, 'none')
+    ),
+    CONCAT(brand, '-', product, '-', region, '-', CAST(window_time AS STRING))
 ));
 ```
 
-Now inspect the generated drafts:
+That action stream can be consumed by sink connectors or downstream services to open Jira tickets, send Slack alerts, create support playbooks, or trigger incident workflows.
 
-```sql
-SELECT * FROM brand_response_drafts;
-```
+### 5. What to demo to judges
 
-The output gives you:
+The strongest short demo sequence is:
 
-- a machine-readable severity field
-- a short explanation of the customer signal pattern
-- an AI-generated response draft for review
-- an escalation rationale that can route the incident to PR, support, or product teams
+1. Show social and news negativity in `brand_mentions`
+2. Show support load rising in `support_cases`
+3. Show a nearby firmware rollout in `product_release_events`
+4. Show Flink produce `brand_incident_alerts`
+5. Show AI produce `brand_response_actions`
+6. Show the action stream routed to a downstream sink or consumer
 
-## Conclusion
+That hits all four judging dimensions cleanly.
 
-This lab turns governed event streams into a real-time sentiment response engine. Schema Registry keeps the social and news event contract consistent, Flink handles low-latency aggregation and thresholding, and the AI layer drafts response language fast enough to help teams intervene before a story grows into a broader brand event.
+## Why this version is more competitive
+
+- **Most impactful app:** it helps prevent PR crises and speeds incident response
+- **AI business impact:** AI is used to route and draft operational responses, not just summarize text
+- **Connectors:** the design explicitly relies on multiple inbound connectors and at least one outbound action sink
+- **Stream processing:** multi-stream windowing, joins, scoring, and routing are central to the app
+- **Stream governance:** Schema Registry covers source, derived, and action topics with evolution-safe contracts
+
+## Recommended next implementation step
+
+If you want to carry this from design into code, the best next move is to add two more sample publishers or connectors for:
+
+- `support_cases`
+- `product_release_events`
+
+That would let the repo demonstrate the stronger Flink correlation query directly instead of only documenting it.
 
 ## Clean-up
 
